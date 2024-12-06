@@ -1,0 +1,120 @@
+#Install Required Libraries: Next, you need to install the necessary Python libraries. Run the following cell to install the required dependencies:
+
+
+!pip install tensorflow==2.4.1 opencv-python imutils scikit-learn matplotlib
+#Import Necessary Libraries: Now, let's import all the libraries you'll need for the project. Run the following code:
+
+import os
+import cv2
+import numpy as np
+from sklearn.preprocessing import LabelBinarizer
+from sklearn.model_selection import train_test_split
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+from tensorflow.keras.applications import VGG16
+from tensorflow.keras.layers import Input, AveragePooling2D, Flatten, Dense, Dropout
+from tensorflow.keras.models import Model
+from tensorflow.keras.optimizers import Adam
+import matplotlib.pyplot as plt
+from imutils import paths
+Load and Preprocess the Data: Next, you need to load and preprocess the dataset. Add the following code to load the images and labels:
+
+
+# Define the dataset path
+dataset_path = '/content/brain_tumor_dataset/'
+
+# Load image paths
+image_paths = list(paths.list_images(dataset_path))
+
+images = []
+labels = []
+
+for image_path in image_paths:
+    label = image_path.split(os.path.sep)[-2]  # Extract label (yes/no)
+    image = cv2.imread(image_path)
+    image = cv2.resize(image, (224, 224))  # Resize images to 224x224
+    images.append(image)
+    labels.append(label)
+
+# Convert to numpy arrays and normalize images
+images = np.array(images) / 255.0
+labels = np.array(labels)
+
+# One-hot encode the labels
+label_binarizer = LabelBinarizer()
+labels = label_binarizer.fit_transform(labels)
+
+# Convert to categorical labels
+labels = np.asarray(labels)
+Split the Data into Training and Testing: Now, split your data into training and testing sets:
+
+
+# Split the dataset into train and test sets
+train_X, test_X, train_Y, test_Y = train_test_split(images, labels, test_size=0.10, random_state=42, stratify=labels)
+Set Up Data Augmentation: Using ImageDataGenerator to augment the training data:
+
+
+# Set up data augmentation for training
+train_generator = ImageDataGenerator(fill_mode='nearest', rotation_range=15)
+#Build the CNN Model: Now, define and set up the VGG16 model:
+
+
+# Define the model architecture using VGG16
+base_model = VGG16(weights='imagenet', input_tensor=Input(shape=(224, 224, 3)), include_top=False)
+
+# Add custom layers
+base_output = base_model.output
+base_output = AveragePooling2D(pool_size=(4, 4))(base_output)
+base_output = Flatten(name="flatten")(base_output)
+base_output = Dense(64, activation="relu")(base_output)
+base_output = Dropout(0.5)(base_output)
+base_output = Dense(2, activation="softmax")(base_output)
+
+# Freeze the base layers
+for layer in base_model.layers:
+    layer.trainable = False
+
+# Compile the model
+model = Model(inputs=base_model.input, outputs=base_output)
+model.compile(optimizer=Adam(learning_rate=1e-3), metrics=['accuracy'], loss='binary_crossentropy')
+#Train the Model: Set up the hyperparameters and train the model:
+
+
+batch_size = 8
+train_steps = len(train_X) // batch_size
+validation_steps = len(test_X) // batch_size
+epochs = 10
+
+# Train the model
+history = model.fit(train_generator.flow(train_X, train_Y, batch_size=batch_size),
+                    steps_per_epoch=train_steps,
+                    validation_data=(test_X, test_Y),
+                    validation_steps=validation_steps,
+                    epochs=epochs)
+#Evaluate the Model: After training, evaluate the model on the test set:
+
+
+from sklearn.metrics import classification_report, confusion_matrix
+
+predictions = model.predict(test_X, batch_size=batch_size)
+predictions = np.argmax(predictions, axis=1)
+actuals = np.argmax(test_Y, axis=1)
+
+# Classification report and confusion matrix
+print(classification_report(actuals, predictions, target_names=label_binarizer.classes_))
+cm = confusion_matrix(actuals, predictions)
+print(cm)
+Plot the Results: Finally, visualize the training and validation loss and accuracy:
+
+# Plot the loss and accuracy graphs
+N = epochs
+plt.style.use("ggplot")
+plt.figure()
+plt.plot(np.arange(0, N), history.history["loss"], label="train_loss")
+plt.plot(np.arange(0, N), history.history["val_loss"], label="val_loss")
+plt.plot(np.arange(0, N), history.history["accuracy"], label="train_acc")
+plt.plot(np.arange(0, N), history.history["val_accuracy"], label="val_acc")
+plt.title("Training Loss and Accuracy on Brain Dataset")
+plt.xlabel("Epoch")
+plt.ylabel("Loss / Accuracy")
+plt.legend(loc="lower left")
+plt.show()
